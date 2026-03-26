@@ -23,7 +23,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Ensure non-empty build number for llama.cpp versioning
 
-set(LLAMA_UPSTREAM_TAG "b8530" CACHE STRING "Default llama build number" FORCE)
+set(LLAMA_UPSTREAM_TAG "b8464" CACHE STRING "Default llama build number" FORCE)
 
 
 # Strategy: ggml dynamic + llama static

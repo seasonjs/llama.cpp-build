@@ -1,0 +1,379 @@
+name: Build Llama SDK
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create a GitHub Release for this run"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential cmake ninja-build wget curl
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install/linux" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_NATIVE=OFF \
+            -DGGML_CPU=ON \
+            -DGGML_CPU_ALL_VARIANTS=ON
+
+      - name: Build
+        run: cmake --build build/linux --config Release -j "$(nproc)"
+
+      - name: Install
+        run: cmake --install build/linux --config Release
+
+      - name: Stage llama SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_root="build/linux"
+          install_root="install/linux"
+          stage="artifact/llama-linux-x86_64-sdk"
+
+          mkdir -p "$stage/include" "$stage/lib" "$stage/bin" "$stage/lib/cmake"
+
+          cp -a "$install_root/include"/llama*.h "$stage/include/"
+          cp -a "$install_root/lib"/libllama* "$stage/lib/" 2>/dev/null || true
+          cp -a "$install_root/bin"/llama* "$stage/bin/" 2>/dev/null || true
+
+          if [ ! -d "$install_root/lib/cmake/llama" ]; then
+            echo "Missing install/lib/cmake/llama in install output" >&2
+            exit 1
+          fi
+
+          cp -a "$install_root/lib/cmake/llama" "$stage/lib/cmake/"
+
+          config_file="$stage/lib/cmake/llama/llama-config.cmake"
+          perl -0pi -e 's/find_package\(ggml REQUIRED HINTS \$\{LLAMA_LIB_DIR\}\/cmake\)/find_package(ggml CONFIG REQUIRED)/g' "$config_file"
+
+          ggml_release_base_url="$(grep '^GGML_RELEASE_BASE_URL:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          ggml_release_tag="$(grep '^GGML_RELEASE_TAG:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          llama_upstream_tag="$(grep '^LLAMA_UPSTREAM_TAG:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          ggml_release_page="${ggml_release_base_url/\/releases\/download/\/releases\/tag}/${ggml_release_tag}"
+
+          cat > "$stage/SDK-METADATA.txt" <<EOF
+          name=llama
+          platform=linux-x86_64
+          llama_upstream_tag=${llama_upstream_tag}
+          ggml_release_base_url=${ggml_release_base_url}
+          ggml_release_tag=${ggml_release_tag}
+          consume_note=Install the matching ggml SDK separately and expose it via CMAKE_PREFIX_PATH or ggml_DIR.
+          EOF
+
+          cat > "$stage/README.sdk.txt" <<EOF
+          This SDK contains only the llama shared library and public headers.
+          Download the matching ggml SDK separately from:
+          ${ggml_release_page}
+
+          To consume both SDKs from CMake, add both roots to CMAKE_PREFIX_PATH
+          or set ggml_DIR explicitly before resolving llama.
+          EOF
+
+          cp LICENSE "$stage/LICENSE.project"
+          if [ -f "$build_root/_deps/llama-src/LICENSE" ]; then
+            cp "$build_root/_deps/llama-src/LICENSE" "$stage/LICENSE.llama.cpp"
+          fi
+
+          test -f "$stage/include/llama.h"
+          test -f "$stage/include/llama-cpp.h"
+          ls "$stage/lib"/libllama* >/dev/null 2>&1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-linux-x86_64-sdk
+          path: artifact/llama-linux-x86_64-sdk
+          if-no-files-found: error
+
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: brew install cmake ninja
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build/macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DCMAKE_INSTALL_RPATH="@loader_path" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install/macos" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_NATIVE=OFF \
+            -DGGML_CPU=ON
+
+      - name: Build
+        run: cmake --build build/macos --config Release -j "$(sysctl -n hw.ncpu)"
+
+      - name: Install
+        run: cmake --install build/macos --config Release
+
+      - name: Stage llama SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_root="build/macos"
+          install_root="install/macos"
+          stage="artifact/llama-macos-arm64-sdk"
+
+          mkdir -p "$stage/include" "$stage/lib" "$stage/bin" "$stage/lib/cmake"
+
+          cp -a "$install_root/include"/llama*.h "$stage/include/"
+          cp -a "$install_root/lib"/libllama* "$stage/lib/" 2>/dev/null || true
+          cp -a "$install_root/bin"/llama* "$stage/bin/" 2>/dev/null || true
+
+          if [ ! -d "$install_root/lib/cmake/llama" ]; then
+            echo "Missing install/lib/cmake/llama in install output" >&2
+            exit 1
+          fi
+
+          cp -a "$install_root/lib/cmake/llama" "$stage/lib/cmake/"
+
+          config_file="$stage/lib/cmake/llama/llama-config.cmake"
+          perl -0pi -e 's/find_package\(ggml REQUIRED HINTS \$\{LLAMA_LIB_DIR\}\/cmake\)/find_package(ggml CONFIG REQUIRED)/g' "$config_file"
+
+          ggml_release_base_url="$(grep '^GGML_RELEASE_BASE_URL:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          ggml_release_tag="$(grep '^GGML_RELEASE_TAG:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          llama_upstream_tag="$(grep '^LLAMA_UPSTREAM_TAG:STRING=' "$build_root/CMakeCache.txt" | cut -d= -f2-)"
+          ggml_release_page="${ggml_release_base_url/\/releases\/download/\/releases\/tag}/${ggml_release_tag}"
+
+          cat > "$stage/SDK-METADATA.txt" <<EOF
+          name=llama
+          platform=macos-arm64
+          llama_upstream_tag=${llama_upstream_tag}
+          ggml_release_base_url=${ggml_release_base_url}
+          ggml_release_tag=${ggml_release_tag}
+          consume_note=Install the matching ggml SDK separately and expose it via CMAKE_PREFIX_PATH or ggml_DIR.
+          EOF
+
+          cat > "$stage/README.sdk.txt" <<EOF
+          This SDK contains only the llama shared library and public headers.
+          Download the matching ggml SDK separately from:
+          ${ggml_release_page}
+
+          To consume both SDKs from CMake, add both roots to CMAKE_PREFIX_PATH
+          or set ggml_DIR explicitly before resolving llama.
+          EOF
+
+          cp LICENSE "$stage/LICENSE.project"
+          if [ -f "$build_root/_deps/llama-src/LICENSE" ]; then
+            cp "$build_root/_deps/llama-src/LICENSE" "$stage/LICENSE.llama.cpp"
+          fi
+
+          test -f "$stage/include/llama.h"
+          test -f "$stage/include/llama-cpp.h"
+          ls "$stage/lib"/libllama* >/dev/null 2>&1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-macos-arm64-sdk
+          path: artifact/llama-macos-arm64-sdk
+          if-no-files-found: error
+
+  build-windows-x86_64:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B build/windows -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="${env:GITHUB_WORKSPACE}\install\windows" `
+            -DBUILD_SHARED_LIBS=ON `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_CPU=ON
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/windows --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Install
+        shell: pwsh
+        run: cmake --install build/windows --config Release
+
+      - name: Stage llama SDK
+        shell: pwsh
+        run: |
+          $buildRoot = "build/windows"
+          $installRoot = "install/windows"
+          $stage = "artifact/llama-windows-x86_64-sdk"
+
+          New-Item -ItemType Directory -Force -Path "$stage/include" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/lib" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/lib/cmake/llama" | Out-Null
+
+          Copy-Item -Path "$installRoot/include/llama*.h" -Destination "$stage/include/" -Force
+          Copy-Item -Path "$installRoot/bin/llama*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$installRoot/lib/llama*" -Destination "$stage/lib/" -Force -ErrorAction SilentlyContinue
+
+          if (-not (Test-Path "$installRoot/lib/cmake/llama")) {
+            Write-Error "Missing install/lib/cmake/llama in install output"
+            exit 1
+          }
+
+          Copy-Item -Path "$installRoot/lib/cmake/llama/*" -Destination "$stage/lib/cmake/llama/" -Force
+
+          $configFile = Join-Path $stage "lib/cmake/llama/llama-config.cmake"
+          $configContent = Get-Content -Path $configFile -Raw
+          $configContent = $configContent.Replace(
+            'find_package(ggml REQUIRED HINTS ${LLAMA_LIB_DIR}/cmake)',
+            'find_package(ggml CONFIG REQUIRED)'
+          )
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Resolve-Path $configFile), $configContent, $utf8NoBom)
+
+          function Get-CacheValue([string]$Key) {
+            $match = Select-String -Path "$buildRoot/CMakeCache.txt" -Pattern "^${Key}:.*=(.*)$"
+            if (-not $match) {
+              return ""
+            }
+            return $match.Matches[0].Groups[1].Value
+          }
+
+          $ggmlReleaseBaseUrl = Get-CacheValue "GGML_RELEASE_BASE_URL"
+          $ggmlReleaseTag = Get-CacheValue "GGML_RELEASE_TAG"
+          $llamaUpstreamTag = Get-CacheValue "LLAMA_UPSTREAM_TAG"
+          $ggmlReleasePage = ($ggmlReleaseBaseUrl -replace '/releases/download$', '/releases/tag') + "/$ggmlReleaseTag"
+
+          $metadata = @"
+          name=llama
+          platform=windows-x86_64
+          llama_upstream_tag=$llamaUpstreamTag
+          ggml_release_base_url=$ggmlReleaseBaseUrl
+          ggml_release_tag=$ggmlReleaseTag
+          consume_note=Install the matching ggml SDK separately and expose it via CMAKE_PREFIX_PATH or ggml_DIR.
+          "@
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $stage) "SDK-METADATA.txt"), $metadata, $utf8NoBom)
+
+          $readme = @"
+          This SDK contains only the llama shared library and public headers.
+          Download the matching ggml SDK separately from:
+          $ggmlReleasePage
+
+          To consume both SDKs from CMake, add both roots to CMAKE_PREFIX_PATH
+          or set ggml_DIR explicitly before resolving llama.
+          "@
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $stage) "README.sdk.txt"), $readme, $utf8NoBom)
+
+          Copy-Item -Path LICENSE -Destination "$stage/LICENSE.project" -Force
+          if (Test-Path "$buildRoot/_deps/llama-src/LICENSE") {
+            Copy-Item -Path "$buildRoot/_deps/llama-src/LICENSE" -Destination "$stage/LICENSE.llama.cpp" -Force
+          }
+
+          if (-not (Test-Path "$stage/include/llama.h")) {
+            Write-Error "Missing public header llama.h"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/include/llama-cpp.h")) {
+            Write-Error "Missing public header llama-cpp.h"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/lib/llama.lib")) {
+            Write-Error "Missing import library llama.lib"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/bin/llama.dll")) {
+            Write-Error "Missing runtime library llama.dll"
+            exit 1
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-windows-x86_64-sdk
+          path: artifact/llama-windows-x86_64-sdk
+          if-no-files-found: error
+
+  release:
+    needs:
+      - build-linux-x86_64
+      - build-macos-arm64
+      - build-windows-x86_64
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.create_release == true }}
+    steps:
+      - name: Determine release name
+        id: release_name
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_name="${{ steps.release_name.outputs.name }}"
+          mkdir -p release
+
+          tar czf "release/llama-sdk-${release_name}-linux-x86_64.tar.gz" -C artifacts llama-linux-x86_64-sdk
+          tar czf "release/llama-sdk-${release_name}-macos-arm64.tar.gz" -C artifacts llama-macos-arm64-sdk
+          (
+            cd artifacts
+            zip -qr "../release/llama-sdk-${release_name}-windows-x86_64.zip" llama-windows-x86_64-sdk
+          )
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_name.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release_name.outputs.name }}
+          files: |
+            release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

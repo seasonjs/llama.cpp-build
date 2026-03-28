@@ -334,7 +334,7 @@ jobs:
       - build-macos-arm64
       - build-windows-x86_64
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.create_release == true }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true) }}
     steps:
       - name: Determine release name
         id: release_name

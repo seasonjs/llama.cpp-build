@@ -14,7 +14,7 @@ set(
 
 set(GGML_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ggml" CACHE PATH "Path to an unpacked ggml SDK")
 set(GGML_RELEASE_BASE_URL "https://github.com/seasonjs/ggml.cpp-build/releases/download" CACHE STRING "Base release URL, for example https://github.com/seasonjs/ggml.cpp-build/releases/download")
-set(GGML_RELEASE_TAG "v0.14.0" CACHE STRING "Release tag containing the prebuilt ggml SDK archives")
+set(GGML_RELEASE_TAG "v0.17.0" CACHE STRING "Release tag containing the prebuilt ggml SDK archives")
 
 # add dependencies
 get_filename_component(_llama_local_source_dir "${LLAMA_SOURCE_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -23,7 +23,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Ensure non-empty build number for llama.cpp versioning
 
-set(LLAMA_UPSTREAM_TAG "b9555" CACHE STRING "Default llama build number" FORCE)
+set(LLAMA_UPSTREAM_TAG "b10159" CACHE STRING "Default llama build number" FORCE)
 
 
 # Strategy: ggml dynamic + llama static

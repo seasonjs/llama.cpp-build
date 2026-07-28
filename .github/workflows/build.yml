@@ -65,6 +65,10 @@ jobs:
           cp -a "$install_root/lib"/libllama* "$stage/lib/" 2>/dev/null || true
           cp -a "$install_root/bin"/llama* "$stage/bin/" 2>/dev/null || true
 
+          # mtmd (multimodal) shared library + public headers
+          cp -a "$install_root/include"/mtmd*.h "$stage/include/"
+          cp -a "$install_root/lib"/libmtmd* "$stage/lib/" 2>/dev/null || true
+
           if [ ! -d "$install_root/lib/cmake/llama" ]; then
             echo "Missing install/lib/cmake/llama in install output" >&2
             exit 1
@@ -90,7 +94,7 @@ jobs:
           EOF
 
           cat > "$stage/README.sdk.txt" <<EOF
-          This SDK contains only the llama shared library and public headers.
+          This SDK contains the llama and mtmd (multimodal) shared libraries and their public headers.
           Download the matching ggml SDK separately from:
           ${ggml_release_page}
 
@@ -106,6 +110,8 @@ jobs:
           test -f "$stage/include/llama.h"
           test -f "$stage/include/llama-cpp.h"
           ls "$stage/lib"/libllama* >/dev/null 2>&1
+          test -f "$stage/include/mtmd.h"
+          ls "$stage/lib"/libmtmd* >/dev/null 2>&1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -157,6 +163,10 @@ jobs:
           cp -a "$install_root/lib"/libllama* "$stage/lib/" 2>/dev/null || true
           cp -a "$install_root/bin"/llama* "$stage/bin/" 2>/dev/null || true
 
+          # mtmd (multimodal) shared library + public headers
+          cp -a "$install_root/include"/mtmd*.h "$stage/include/"
+          cp -a "$install_root/lib"/libmtmd* "$stage/lib/" 2>/dev/null || true
+
           if [ ! -d "$install_root/lib/cmake/llama" ]; then
             echo "Missing install/lib/cmake/llama in install output" >&2
             exit 1
@@ -182,7 +192,7 @@ jobs:
           EOF
 
           cat > "$stage/README.sdk.txt" <<EOF
-          This SDK contains only the llama shared library and public headers.
+          This SDK contains the llama and mtmd (multimodal) shared libraries and their public headers.
           Download the matching ggml SDK separately from:
           ${ggml_release_page}
 
@@ -198,6 +208,8 @@ jobs:
           test -f "$stage/include/llama.h"
           test -f "$stage/include/llama-cpp.h"
           ls "$stage/lib"/libllama* >/dev/null 2>&1
+          test -f "$stage/include/mtmd.h"
+          ls "$stage/lib"/libmtmd* >/dev/null 2>&1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
@@ -250,6 +262,11 @@ jobs:
           Copy-Item -Path "$installRoot/bin/llama*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
           Copy-Item -Path "$installRoot/lib/llama*" -Destination "$stage/lib/" -Force -ErrorAction SilentlyContinue
 
+          # mtmd (multimodal) shared library + public headers
+          Copy-Item -Path "$installRoot/include/mtmd*.h" -Destination "$stage/include/" -Force
+          Copy-Item -Path "$installRoot/bin/mtmd*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$installRoot/lib/mtmd*" -Destination "$stage/lib/" -Force -ErrorAction SilentlyContinue
+
           if (-not (Test-Path "$installRoot/lib/cmake/llama")) {
             Write-Error "Missing install/lib/cmake/llama in install output"
             exit 1
@@ -290,7 +307,7 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $stage) "SDK-METADATA.txt"), $metadata, $utf8NoBom)
 
           $readme = @"
-          This SDK contains only the llama shared library and public headers.
+          This SDK contains the llama and mtmd (multimodal) shared libraries and their public headers.
           Download the matching ggml SDK separately from:
           $ggmlReleasePage
 
@@ -318,6 +335,18 @@ jobs:
           }
           if (-not (Test-Path "$stage/bin/llama.dll")) {
             Write-Error "Missing runtime library llama.dll"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/include/mtmd.h")) {
+            Write-Error "Missing public header mtmd.h"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/lib/mtmd.lib")) {
+            Write-Error "Missing import library mtmd.lib"
+            exit 1
+          }
+          if (-not (Test-Path "$stage/bin/mtmd.dll")) {
+            Write-Error "Missing runtime library mtmd.dll"
             exit 1
           }
 

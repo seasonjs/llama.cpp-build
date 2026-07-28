@@ -32,6 +32,11 @@ set(LLAMA_UPSTREAM_TAG "b10159" CACHE STRING "Default llama build number" FORCE)
 
 set(LLAMA_BUILD_COMMON OFF CACHE BOOL "Build common utils" FORCE)
 
+# Build the multimodal (vision + audio) library tools/mtmd as a shared library.
+# Upstream exposes a standalone hook that adds only tools/mtmd when common+tools
+# are off, so this pulls in mtmd without the rest of the tools tree.
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "Build tools/mtmd standalone library" FORCE)
+
 # Important: Build shared libraries initially (ggml + llama)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libs" FORCE)
 set(LLAMA_USE_SYSTEM_GGML ON CACHE BOOL "Use system ggml" FORCE)
